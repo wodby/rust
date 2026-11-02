@@ -1,0 +1,138 @@
+name: Build docker image
+
+on:
+  push:
+    branches:
+      - master
+
+    tags:
+      - '*'
+      - '!*-r[0-9]*'
+
+  pull_request:
+
+env:
+  RUST1: '1.99.1'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      rust-versions: ${{ steps.set-matrix.outputs.rust-versions }}
+    steps:
+      - id: set-matrix
+        run: |
+          cat << 'EOF' > versions.json
+          [
+            {"key": "rust1", "version": "${{ env.RUST1 }}", "latest": "latest", "latest_major": "1"}
+          ]
+          EOF
+          echo "rust-versions=$(jq -c . versions.json)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ${{ fromJson(needs.setup.outputs.rust-versions) }}
+        arch:
+          - amd64
+          - arm64
+        dev:
+          - ''
+          - 'dev'
+        user_id:
+          - 1000
+          - 501
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - user_id: 501
+            group_id: 20
+            dev: dev
+        exclude:
+          - dev: ''
+            user_id: 501
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test
+        id: build-image
+        env:
+          RUST_VER: ${{ matrix.rust.version }}
+          ARCH: ${{ matrix.arch }}
+          RUST_DEV: ${{ matrix.dev }}
+          WODBY_USER_ID: ${{ matrix.user_id }}
+          WODBY_GROUP_ID: ${{ matrix.group_id }}
+        run: |
+          make
+          make test
+          echo "image=$(make --no-print-directory -s image-ref)" >> "$GITHUB_OUTPUT"
+      - name: Scan image
+        uses: ./.github/actions/grype
+        with:
+          image: docker:${{ steps.build-image.outputs.image }}
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Push architecture image
+        if: github.event_name == 'push'
+        env:
+          RUST_VER: ${{ matrix.rust.version }}
+          ARCH: ${{ matrix.arch }}
+          RUST_DEV: ${{ matrix.dev }}
+          WODBY_USER_ID: ${{ matrix.user_id }}
+          WODBY_GROUP_ID: ${{ matrix.group_id }}
+        run: make push
+
+  push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - build
+    strategy:
+      matrix:
+        rust: ${{ fromJson(needs.setup.outputs.rust-versions) }}
+        dev:
+          - ''
+          - 'dev'
+        user_id:
+          - 1000
+          - 501
+        exclude:
+          - dev: ''
+            user_id: 501
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - uses: ./.github/actions
+        with:
+          version: ${{ matrix.rust.version }}
+          dev: ${{ matrix.dev }}
+          user_id: ${{ matrix.user_id }}
+          latest: ${{ matrix.rust.latest }}
+          latest_major: ${{ matrix.rust.latest_major }}
+
+  image-revision-aliases:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/r')
+    needs: [ push ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: image-revision-aliases-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: wodby/images/.github/actions/image-revision-aliases@aee656b81ae84e0dca0cfdbea173057abe4a9426
+        with:
+          docker_username: ${{ secrets.DOCKER_USERNAME }}
+          docker_password: ${{ secrets.DOCKER_PASSWORD }}
