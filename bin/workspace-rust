@@ -1,0 +1,118 @@
+#!/bin/sh
+# Build and run the checkout's Cargo project in a development workspace.
+set -eu
+cd "${APP_ROOT:-/usr/src/app}"
+state=$(workspace-path)
+# The image keeps Cargo's registry in the container's home, which is lost
+# whenever the container restarts, and preparation runs in a container of its
+# own. Keep downloaded crates and compiled artifacts with the checkout instead,
+# so a restart recompiles only what changed. Settings changed from the image's
+# defaults stay as set.
+if [ "${CARGO_HOME:-/home/wodby/.cargo}" = /home/wodby/.cargo ]; then
+ export CARGO_HOME="$state/cargo"
+fi
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$state/target}"
+export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-8080}"
+if [ "${1:-}" = start ] && [ -n "${WORKSPACE_RUST_COMMAND:-}" ]; then exec sh -ec "$WORKSPACE_RUST_COMMAND"; fi
+[ -f Cargo.toml ] || { echo 'Workspace requires Cargo.toml' >&2; exit 1; }
+# A committed lock file is used as is: a missing or outdated entry fails the
+# build and must be fixed in the repository with cargo update. Without one,
+# Cargo creates it, as it does on any first build.
+locked=
+if [ -f Cargo.lock ]; then locked=--locked; fi
+flags="$locked"
+if [ -n "${WORKSPACE_RUST_PACKAGE:-}" ]; then flags="$flags --package $WORKSPACE_RUST_PACKAGE"; fi
+if [ -n "${WORKSPACE_RUST_BIN:-}" ]; then flags="$flags --bin $WORKSPACE_RUST_BIN"; fi
+root=$(pwd -P)
+messages=$(mktemp)
+trap 'rm -f "$messages"' EXIT
+# Compiles the selected binary and stores its path in $binary. With several
+# binaries and no selection, the root package's default-run binary is used.
+build() {
+ # shellcheck disable=SC2086
+ cargo build $flags --message-format=json-render-diagnostics > "$messages" || return 1
+ found=$(jq -r 'select(.reason == "compiler-artifact" and .executable != null and (.target.kind | index("bin"))) | "\(.target.name)\t\(.executable)"' "$messages" | sort -u)
+ count=$(printf '%s' "$found" | grep -c . || true)
+ if [ "$count" -gt 1 ]; then
+  default=$(cargo metadata --no-deps --format-version 1 $locked | jq -r --arg manifest "$root/Cargo.toml" '.packages[] | select(.manifest_path == $manifest) | .default_run // empty')
+  [ -n "$default" ] || { echo 'workspace-rust: the project builds several binaries; set WORKSPACE_RUST_BIN' >&2; return 1; }
+  found=$(printf '%s\n' "$found" | awk -F '\t' -v name="$default" '$1 == name')
+  count=$(printf '%s' "$found" | grep -c . || true)
+ fi
+ [ "$count" -eq 1 ] || { echo 'workspace-rust: no binary was built; set WORKSPACE_RUST_PACKAGE or WORKSPACE_RUST_BIN' >&2; return 1; }
+ binary=$(printf '%s\n' "$found" | cut -f 2)
+}
+case "${1:-}" in
+ prepare)
+  # shellcheck disable=SC2086
+  cargo fetch $locked
+  # Compiling the dependencies here makes the first start fast. An error in the
+  # application's own code is reported by start, where it can be fixed.
+  build || echo 'workspace-rust: the build failed; start reports the errors' >&2 ;;
+ start)
+  # Compile the checkout and run it. With watching on, which is the default,
+  # the checkout is compiled again whenever a file in it changes and the
+  # application is restarted with the new build, so a change is served without
+  # restarting the container. A build that fails leaves the running build up.
+  build
+  if [ "${WORKSPACE_RUST_WATCH:-1}" = 0 ]; then
+   rm -f "$messages"
+   trap - EXIT
+   exec "$binary"
+  fi
+  # The checkout is a shared volume that other containers write to, where file
+  # events don't arrive, so the files are polled. Anything in the checkout can
+  # be part of the build (build scripts, included files, templates), so
+  # everything is watched but Git's own files, this script's storage, Cargo's
+  # default target directory and installed Node packages.
+  interval="${WORKSPACE_POLL_INTERVAL:-1000}"
+  case "$interval" in ''|*[!0-9]*) echo 'WORKSPACE_POLL_INTERVAL must be milliseconds' >&2; exit 1 ;; esac
+  [ "$interval" -ge 100 ] && [ "$interval" -le 60000 ] || { echo 'Polling interval must be 100..60000 ms' >&2; exit 1; }
+  pause=$(( (interval + 999) / 1000 ))
+  fingerprint() {
+   find "$root" \( -path "$root/.git" -o -path "$state" -o -path "$root/target" -o -name node_modules \) -prune -o -type f -exec stat -c '%Y %s %n' {} + 2>/dev/null | sort | cksum
+  }
+  child=
+  stop() {
+   [ -n "$child" ] || return 0
+   kill -TERM "$child" 2>/dev/null || true
+   # An application that ignores the signal is killed after ten seconds.
+   n=0
+   while kill -0 "$child" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+   kill -KILL "$child" 2>/dev/null || true
+   wait "$child" 2>/dev/null || true
+   child=
+  }
+  trap 'stop; rm -f "$messages"; exit 143' HUP INT TERM
+  seen=$(fingerprint)
+  "$binary" &
+  child=$!
+  while :; do
+   # Sleep in the background so a signal ends the wait at once.
+   sleep "$pause" &
+   wait $! || true
+   if ! kill -0 "$child" 2>/dev/null; then
+    # The application ended by itself. The container ends with it, as it
+    # would without watching, and its restart policy decides what follows.
+    code=0
+    wait "$child" || code=$?
+    child=
+    exit "$code"
+   fi
+   now=$(fingerprint)
+   [ "$now" != "$seen" ] || continue
+   seen=$now
+   echo 'workspace-rust: the checkout changed; compiling' >&2
+   # Cargo replaces the binary only when the build succeeds, and the running
+   # application keeps the file it started from.
+   if build; then
+    stop
+    "$binary" &
+    child=$!
+    echo 'workspace-rust: restarted with the new build' >&2
+   else
+    echo 'workspace-rust: the build failed; the previous build keeps running' >&2
+   fi
+  done ;;
+ *) echo 'Usage: workspace-rust prepare|start' >&2; exit 1 ;;
+esac
