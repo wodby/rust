@@ -13,16 +13,9 @@ if [[ "${GITHUB_REF}" == refs/heads/master || "${GITHUB_REF}" == refs/tags/* ]];
   major_tag="${minor_ver%.*}"
 
   if [[ -n "${RUST_DEV}" ]]; then
-    if [[ "${WODBY_USER_ID}" == "501" ]]; then
-      minor_tag="${minor_tag}-dev-macos"
-      if [[ -n "${LATEST_MAJOR}" ]]; then
-        major_tag="${major_tag}-dev-macos"
-      fi
-    else
-      minor_tag="${minor_tag}-dev"
-      if [[ -n "${LATEST_MAJOR}" ]]; then
-        major_tag="${major_tag}-dev"
-      fi
+    minor_tag="${minor_tag}-dev"
+    if [[ -n "${LATEST_MAJOR}" ]]; then
+      major_tag="${major_tag}-dev"
     fi
   fi
 
@@ -42,11 +35,7 @@ if [[ "${GITHUB_REF}" == refs/heads/master || "${GITHUB_REF}" == refs/tags/* ]];
       if [[ -z "${RUST_DEV}" ]]; then
         tags+=("latest")
       else
-        if [[ "${WODBY_USER_ID}" == "501" ]]; then
-          tags+=("dev-macos")
-        else
-          tags+=("dev")
-        fi
+        tags+=("dev")
       fi
     fi
   fi

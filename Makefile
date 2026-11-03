@@ -18,13 +18,8 @@ endif
 
 ifeq ($(TAG),)
 	ifneq ($(RUST_DEV),)
-		ifeq ($(WODBY_USER_ID),501)
-			TAG := $(RUST_VER_MINOR)-dev-macos
-			NAME := $(NAME)-dev-macos
-		else
-			TAG := $(RUST_VER_MINOR)-dev
-			NAME := $(NAME)-dev
-		endif
+		TAG := $(RUST_VER_MINOR)-dev
+		NAME := $(NAME)-dev
 	else
 		TAG := $(RUST_VER_MINOR)
 	endif

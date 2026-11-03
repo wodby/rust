@@ -12,9 +12,6 @@ inputs:
     required: false
   dev:
     description: if set then it's a dev version
-  user_id:
-    description: user id
-    required: true
 runs:
   using: "composite"
   steps:
@@ -22,7 +19,6 @@ runs:
       env:
         RUST_VER: ${{ inputs.version }}
         RUST_DEV: ${{ inputs.dev }}
-        WODBY_USER_ID: ${{ inputs.user_id }}
         LATEST: ${{ inputs.latest }}
         LATEST_MAJOR: ${{ inputs.latest_major }}
       run: |
