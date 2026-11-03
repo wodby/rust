@@ -20,13 +20,6 @@
             "{major}-dev"
           ],
           "full": "{version}-dev"
-        },
-        {
-          "short": [
-            "{minor}-dev-macos",
-            "{major}-dev-macos"
-          ],
-          "full": "{version}-dev-macos"
         }
       ]
     }

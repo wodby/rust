@@ -8,7 +8,6 @@
 
 - [Docker Images](#docker-images)
     - [`-dev`](#-dev)
-    - [`-dev-macos`](#-dev-macos)
     - [Supported architectures](#supported-architectures)
 - [Environment Variables](#environment-variables)
 - [Build arguments](#build-arguments)
@@ -41,7 +40,6 @@ Supported tags and respective `Dockerfile` links:
 
 - `1.99`, `1`, `latest` [_(Dockerfile)_]
 - `1.99-dev`, `1-dev`, `dev` [_(Dockerfile)_]
-- `1.99-dev-macos`, `1-dev-macos` [_(Dockerfile)_]
 
 Rust keeps compatibility within the 1.x series, so the image follows the latest stable release: `1` moves to each new
 minor release, while minor tags such as `1.99` stay on their release.
@@ -51,10 +49,6 @@ minor release, while minor tags such as `1.99` stay on their release.
 ### `-dev`
 
 Images with `-dev` tag have `sudo` allowed for all commands for the `wodby` user and include build dependencies for crates that link C libraries (PostgreSQL, MariaDB, SQLite) or build them with CMake.
-
-### `-dev-macos`
-
-Same as `-dev` but the default user/group `wodby` has uid/gid `501`/`20` to match the macOS default user/group ids.
 
 ### Supported architectures
 
