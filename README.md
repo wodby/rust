@@ -38,11 +38,11 @@ About images:
 
 Supported tags and respective `Dockerfile` links:
 
-- `1.99`, `1`, `latest` [_(Dockerfile)_]
-- `1.99-dev`, `1-dev`, `dev` [_(Dockerfile)_]
+- `1.100`, `1`, `latest` [_(Dockerfile)_]
+- `1.100-dev`, `1-dev`, `dev` [_(Dockerfile)_]
 
 Rust keeps compatibility within the 1.x series, so the image follows the latest stable release: `1` moves to each new
-minor release, while minor tags such as `1.99` stay on their release.
+minor release, while minor tags such as `1.100` stay on their release.
 
 [_(Dockerfile)_]: https://github.com/wodby/rust/tree/master/Dockerfile
 

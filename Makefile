@@ -1,6 +1,6 @@
 -include env_make
 
-RUST_VER ?= 1.99.1
+RUST_VER ?= 1.100.0
 RUST_VER_MINOR := $(shell v='$(RUST_VER)'; echo "$${v%.*}")
 
 REPO = wodby/rust
